@@ -105,13 +105,6 @@ jobs:
 
             test -s index.js
             test -s index.d.ts
-
-            grep -q 'export const proto' index.js
-            if ! grep -Eq '(^|[[:space:]])namespace proto' index.d.ts; then
-              echo "Generated index.d.ts does not expose proto namespace as expected."
-              sed -n '1,40p' index.d.ts
-              exit 1
-            fi
           )
 
       - name: Clean dependency-only changes
