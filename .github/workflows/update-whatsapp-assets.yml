@@ -1,0 +1,155 @@
+name: Update WhatsApp Assets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '25 3 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-whatsapp-assets
+  cancel-in-progress: false
+
+jobs:
+  update-whatsapp-assets:
+    name: Update WhatsApp version and proto
+    runs-on: ubuntu-latest
+
+    env:
+      TARGET_BRANCH: main
+      COMMIT_NAME: thisAdo
+      COMMIT_EMAIL: meadonix@gmail.com
+      WA_PROTO_URL: https://raw.githubusercontent.com/wppconnect-team/wa-proto/main/WAProto.proto
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN || github.token }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "$COMMIT_NAME"
+          git config user.email "$COMMIT_EMAIL"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Corepack and Yarn 4
+        run: |
+          corepack enable
+          corepack prepare yarn@4.9.2 --activate
+          yarn --version
+
+      - name: Force node_modules linker for CI
+        run: |
+          cat > .yarnrc.yml <<'EOF'
+          nodeLinker: node-modules
+          EOF
+
+      - name: Install dependencies
+        run: |
+          YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn install
+          YARN_ENABLE_IMMUTABLE_INSTALLS=false yarn add protobufjs-cli long --dev
+
+      - name: Update WhatsApp Web version
+        id: version
+        run: yarn update:version
+
+      - name: Download latest WhatsApp proto
+        run: |
+          curl -fsSL "$WA_PROTO_URL" -o WAProto/WAProto.proto
+          test -s WAProto/WAProto.proto
+          grep -q 'syntax = "proto3";' WAProto/WAProto.proto
+
+      - name: Normalize extracted proto
+        run: node ./scripts/normalize-proto.cjs WAProto/WAProto.proto
+
+      - name: Generate WAProto static files
+        shell: bash
+        run: |
+          (
+            set -euo pipefail
+            cd WAProto
+
+            rm -f index.js index.d.ts
+
+            yarn pbjs \
+              -t static-module \
+              --no-beautify \
+              -w es6 \
+              --no-bundle \
+              --no-delimited \
+              --no-verify \
+              --no-comments \
+              -o ./index.js \
+              ./WAProto.proto
+
+            yarn pbjs \
+              -t static-module \
+              --no-beautify \
+              -w es6 \
+              --no-bundle \
+              --no-delimited \
+              --no-verify \
+              ./WAProto.proto \
+              | yarn pbts --no-comments -o ./index.d.ts -
+
+            node ./fix-imports.js
+
+            test -s index.js
+            test -s index.d.ts
+
+            grep -q 'export const proto' index.js
+            grep -q 'export namespace proto' index.d.ts
+          )
+
+      - name: Clean dependency-only changes
+        run: |
+          git restore package.json yarn.lock .pnp.cjs .yarnrc.yml >/dev/null 2>&1 || true
+          git restore --staged . >/dev/null 2>&1 || true
+
+      - name: Check WhatsApp asset changes
+        id: changes
+        run: |
+          git add \
+            lib/Defaults/index.js \
+            lib/Utils/generics.js \
+            WAProto/WAProto.proto \
+            WAProto/index.js \
+            WAProto/index.d.ts
+
+          if git diff --cached --quiet; then
+            echo "No WhatsApp asset changes."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION="${{ steps.version.outputs.wa_version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION="latest"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit WhatsApp asset update
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git commit \
+            --author="$COMMIT_NAME <$COMMIT_EMAIL>" \
+            -m "chore: update WhatsApp assets ${{ steps.changes.outputs.version }}"
+
+      - name: Push WhatsApp asset update
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          PUSH_TOKEN: ${{ secrets.SYNC_TOKEN || github.token }}
+        run: |
+          git remote set-url origin "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:${TARGET_BRANCH}"
