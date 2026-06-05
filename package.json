@@ -20,8 +20,7 @@
     "engine-requirements.js"
   ],
   "scripts": {
-    "preinstall": "node ./engine-requirements.js",
-    "update:version": "node ./scripts/update-version.mjs"
+    "preinstall": "node ./engine-requirements.js"
   },
   "dependencies": {
     "@cacheable/node-cache": "^1.4.0",
