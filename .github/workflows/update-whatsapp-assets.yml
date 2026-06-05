@@ -141,7 +141,7 @@ jobs:
         run: |
           git commit \
             --author="$COMMIT_NAME <$COMMIT_EMAIL>" \
-            -m "chore: update WhatsApp assets ${{ steps.changes.outputs.version }}"
+            -m "# update WhatsApp assets ${{ steps.changes.outputs.version }}"
 
       - name: Push WhatsApp asset update
         if: steps.changes.outputs.changed == 'true'
