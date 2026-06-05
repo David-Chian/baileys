@@ -43,7 +43,7 @@ function longToNumber(value, unsigned) {
 	return prepared.toNumber();
 }
 
-export const waproto = $root.waproto = (() => {
+export const proto = $root.proto = (() => {
 
     const waproto = {};
 
